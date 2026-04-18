@@ -615,6 +615,9 @@ static void HelpLong(void) {
   printf("  -qrange <min> <max> .... specifies the permissible quality range\n"
          "                           (default: 0 100)\n");
   printf("  -crop <x> <y> <w> <h> .. crop picture with the given rectangle\n");
+  printf("  -roi <x1> <y1> <x2> <y2> encode rectangle as high-quality ROI\n");
+  printf("  -roi_mb <idx,...> ....... encode listed macroblock indices as ROI\n"
+         "                           (non-rectangular; overrides -roi)\n");
   printf("  -resize <w> <h> ........ resize picture (*after* any cropping)\n");
   printf("  -resize_mode <string> .. one of: up_only, down_only,"
          " always (default)\n");
@@ -720,6 +723,9 @@ int main(int argc, const char* argv[]) {
   int use_memory_writer;
   Metadata metadata;
   Stopwatch stop_watch;
+  int* roi_mb_indices = NULL;
+  int  roi_mb_count = 0;
+  uint8_t* roi_mb_mask = NULL;
 
   INIT_WARGV(argc, argv);
 
@@ -870,6 +876,29 @@ int main(int argc, const char* argv[]) {
       crop_y = ExUtilGetInt(argv[++c], 0, &parse_error);
       crop_w = ExUtilGetInt(argv[++c], 0, &parse_error);
       crop_h = ExUtilGetInt(argv[++c], 0, &parse_error);
+    } else if (!strcmp(argv[c], "-roi") && c + 4 < argc) {
+      config.roi = 1;
+      config.roi_x1 = ExUtilGetInt(argv[++c], 0, &parse_error);
+      config.roi_y1 = ExUtilGetInt(argv[++c], 0, &parse_error);
+      config.roi_x2 = ExUtilGetInt(argv[++c], 0, &parse_error);
+      config.roi_y2 = ExUtilGetInt(argv[++c], 0, &parse_error);
+    } else if (!strcmp(argv[c], "-roi_mb") && c + 1 < argc) {
+      // Parse comma-separated macroblock indices: -roi_mb 0,1,2,5,6,7,...
+      const char* p = argv[++c];
+      int n = 1;
+      const char* q;
+      for (q = p; *q != '\0'; ++q) if (*q == ',') ++n;
+      roi_mb_indices = (int*)malloc(n * sizeof(*roi_mb_indices));
+      if (roi_mb_indices != NULL) {
+        char* buf = strdup(p);
+        char* tok = strtok(buf, ",");
+        roi_mb_count = 0;
+        while (tok != NULL && roi_mb_count < n) {
+          roi_mb_indices[roi_mb_count++] = atoi(tok);
+          tok = strtok(NULL, ",");
+        }
+        free(buf);
+      }
     } else if (!strcmp(argv[c], "-resize") && c + 2 < argc) {
       resize_w = ExUtilGetInt(argv[++c], 0, &parse_error);
       resize_h = ExUtilGetInt(argv[++c], 0, &parse_error);
@@ -1160,6 +1189,26 @@ int main(int argc, const char* argv[]) {
     fprintf(stderr, "Time to crop/resize picture: %.3fs\n", preproc_time);
   }
 
+  // Build non-rectangular ROI mask from macroblock index list.
+  if (roi_mb_indices != NULL && roi_mb_count > 0) {
+    const int mb_w = (picture.width  + 15) / 16;
+    const int mb_h = (picture.height + 15) / 16;
+    const int total_mb = mb_w * mb_h;
+    int i;
+    roi_mb_mask = (uint8_t*)calloc(total_mb, 1);
+    if (roi_mb_mask == NULL) {
+      fprintf(stderr, "Error! Cannot allocate ROI macroblock mask\n");
+      goto Error;
+    }
+    for (i = 0; i < roi_mb_count; ++i) {
+      const int idx = roi_mb_indices[i];
+      if (idx >= 0 && idx < total_mb) roi_mb_mask[idx] = 1;
+    }
+    free(roi_mb_indices);
+    roi_mb_indices = NULL;
+    config.roi_mb_mask = roi_mb_mask;
+  }
+
   if (picture.extra_info_type > 0) {
     AllocExtraInfo(&picture);
   }
@@ -1290,6 +1339,8 @@ int main(int argc, const char* argv[]) {
   return_value = EXIT_SUCCESS;
 
  Error:
+  free(roi_mb_indices);
+  free(roi_mb_mask);
   WebPMemoryWriterClear(&memory_writer);
   WebPFree(picture.extra_info);
   MetadataFree(&metadata);

@@ -152,6 +152,18 @@ struct WebPConfig {
 
   int qmin;               // minimum permissible quality factor
   int qmax;               // maximum permissible quality factor
+
+  int roi;                // enable ROI (region of interest) encoding
+  int roi_x1;             // ROI rectangle: left pixel (inclusive)
+  int roi_x2;             // ROI rectangle: right pixel (inclusive)
+  int roi_y1;             // ROI rectangle: top pixel (inclusive)
+  int roi_y2;             // ROI rectangle: bottom pixel (inclusive)
+
+  // Non-rectangular ROI: caller-allocated array of (mb_w * mb_h) bytes.
+  // Each byte: 1 = ROI (high quality), 0 = non-ROI (low quality).
+  // When non-NULL, takes precedence over roi_x1/x2/y1/y2.
+  // Caller is responsible for allocation and freeing.
+  const uint8_t* roi_mb_mask;
 };
 
 // Enumerate some predefined settings for WebPConfig, depending on the type

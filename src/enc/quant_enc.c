@@ -303,6 +303,10 @@ static void SetupFilterStrength(VP8Encoder* const enc) {
   const int level0 = 5 * enc->config->filter_strength;
   for (i = 0; i < NUM_MB_SEGMENTS; ++i) {
     VP8SegmentInfo* const m = &enc->dqm[i];
+    // ROI mode: override quant before qstep is derived from it
+    if (enc->config->roi == 1 || enc->config->roi_mb_mask != NULL) {
+      m->quant = (i == 0) ? 127 : (i == 1) ? 0 : m->quant;
+    }
     // We focus on the quantization of AC coeffs.
     const int qstep = kAcTable[clip(m->quant, 0, 127)] >> 2;
     const int base_strength =
@@ -310,6 +314,9 @@ static void SetupFilterStrength(VP8Encoder* const enc) {
     // Segments with lower complexity ('beta') will be less filtered.
     const int f = base_strength * level0 / (256 + m->beta);
     m->fstrength = (f < FSTRENGTH_CUTOFF) ? 0 : (f > 63) ? 63 : f;
+    if (enc->config->roi == 1 || enc->config->roi_mb_mask != NULL) {
+      m->fstrength = (i == 0) ? 63 : (i == 1) ? 0 : m->fstrength;
+    }
   }
   // We record the initial strength (mainly for the case of 1-segment only).
   enc->filter_hdr.level = enc->dqm[0].fstrength;
@@ -403,6 +410,27 @@ static void SimplifySegments(VP8Encoder* const enc) {
   }
 }
 
+static void ApplyROISegments(VP8Encoder* const enc) {
+  int i;
+  const int max_mb = enc->mb_w * enc->mb_h;
+  if (enc->segment_hdr.num_segments < 2) enc->segment_hdr.num_segments = 2;
+  if (enc->config->roi_mb_mask != NULL) {
+    for (i = 0; i < max_mb; ++i) {
+      enc->mb_info[i].segment = enc->config->roi_mb_mask[i] ? 1 : 0;
+    }
+  } else {
+    const int x1 = enc->config->roi_x1 / 16;
+    const int x2 = enc->config->roi_x2 / 16;
+    const int y1 = enc->config->roi_y1 / 16;
+    const int y2 = enc->config->roi_y2 / 16;
+    for (i = 0; i < max_mb; ++i) {
+      const int col = i % enc->mb_w;
+      const int row = i / enc->mb_w;
+      enc->mb_info[i].segment = (col >= x1 && col <= x2 && row >= y1 && row <= y2) ? 1 : 0;
+    }
+  }
+}
+
 void VP8SetSegmentParams(VP8Encoder* const enc, float quality) {
   int i;
   int dq_uv_ac, dq_uv_dc;
@@ -454,6 +482,10 @@ void VP8SetSegmentParams(VP8Encoder* const enc, float quality) {
   SetupFilterStrength(enc);   // initialize segments' filtering, eventually
 
   if (num_segments > 1) SimplifySegments(enc);
+
+  if (enc->config->roi == 1 || enc->config->roi_mb_mask != NULL) {
+    ApplyROISegments(enc);
+  }
 
   SetupMatrices(enc);         // finalize quantization matrices
 }
