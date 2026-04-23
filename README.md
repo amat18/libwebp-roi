@@ -104,3 +104,11 @@ POSSIBILITY OF SUCH DAMAGE.
 ```
 
 See also: [COPYING](COPYING), [PATENTS](PATENTS)
+
+---
+
+## About this document / このドキュメントについて
+
+This document was written with [Claude Code](https://claude.ai/code).
+
+このドキュメントは [Claude Code](https://claude.ai/code) を使用して作成しました。
